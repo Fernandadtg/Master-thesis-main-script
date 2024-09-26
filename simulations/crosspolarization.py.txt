@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+
+@author: toledo
+"""
+
+import matplotlib.pyplot as plt
+import numpy as np
+from numpy.linalg import matrix_power
+import scipy as sp
+from scipy.signal import find_peaks
+
+from qutip import *
+#from funciones_extra import aux_functions
+import os
+from matplotlib.ticker import FormatStrFormatter
+from matplotlib.font_manager import FontProperties
+import pandas as pd
+from class_aux_oper_1 import aux_oper_1 as a_o
+from class_aux_oper_2 import operators_spins_ as op_s
+
+h_bar =6.626070*10**(-34)/(2*np.pi)
+g_o=2.0024
+g_no=2.0134
+u_Bohr = 9.274*10**(-24 )
+gyrom_no=(u_Bohr*g_no/(2*np.pi*h_bar))*10**(-9)
+gyrom_o=(u_Bohr*g_o/(2*np.pi*h_bar))*10**(-9)
+
+expect13c=[]
+Blistc = []
+Iz_13c= qutip.tensor(qeye(3),qutip.jmat(0.5,"z"))
+def matching_pol_signal(B_list,c13_nv_ev,p1_14n_ev,states_f,error,list_expect=[],list_B=[]):
+  for n in range(len(B_list)):
+    for i in range(2,4):
+      deltaE_NV = abs(c13_nv_ev[:,i][n]-c13_nv_ev[:,0][n])
+      for k in range(3):
+        deltaE_P1 = abs(p1_14n_ev[:,k][n]-p1_14n_ev[:,5-k][n])
+        if abs(deltaE_NV - deltaE_P1) < error:          
+           expc13=expect(Iz_13c,states_f[i][n])
+           list_expect.append(expc13)
+           list_B.append(B_list[n])
+        else:
+           list_expect.append(0)
+           list_B.append(B_list[n])
+  return(list_expect,list_B)
+
+
+#units : MHz and mT
+error = 0.5
+a_13c_nv_val=0.35
+theta =0#109/(180/np.pi)
+ 
+script_dir = os.path.dirname(__file__)
+results_dir = os.path.join(script_dir, ' Output_qutip_many_0_up_down-diffconst-01-ap3'+str(a_13c_nv_val)+str(theta)+"/")
+if not os.path.isdir(results_dir):
+    os.makedirs(results_dir)
+
+def compute_hamiltonian(B_list,a_13c_nv_val):
+  B_x = 0
+  B_y = 0
+  phi =5/(180/np.pi)
+ #MHz
+ # a_13c_nv_m = np.diag([a_13c_nv,a_13c_nv,a_13c_nv])
+  D_matrix_2 =a_o.matrixrot(op_s.D_matrix,phi,0)
+  idx = 0
+  evals_mat = np.zeros((len(B_list),3*2))
+  eketsl= [[],[],[],[],[],[]] 
+  for B_z in B_list :
+      
+      B_x = 0
+      B_y = 0
+      B_vector = [B_x,B_y,B_z]
+     # D_S_product_nv_13c_z = op_s.D_zz*op_s.Sz_nv*op_s.Sz_nv
+      #D_S_product_nv_13c = [sum([np.dot(D_matrix_2[j][i],op_s.S_nv_vector[i]) for i in range(3)]) for j in range(3)] 
+      
+      S_D_S_product_nv_13c = a_o.vector_matrix_vector_product(op_s.S_nv_vector,D_matrix_2,op_s.S_nv_vector)#sum([np.dot(op_s.S_nv_vector[k],D_S_product_nv_13c[k]) for k in range(3)])
+      H_zeeman_z = op_s.gyrom*B_z*op_s.Sz_nv
+      hyp_nv_13c =op_s.S_nv_vector[0]*op_s.I_13c_vector[0]+op_s.S_nv_vector[1]*op_s.I_13c_vector[1]+op_s.S_nv_vector[2]*op_s.I_13c_vector[2]
+      H_hyp_nv_13c = a_13c_nv_val*hyp_nv_13c
+
+      H_total_nv_13c = S_D_S_product_nv_13c + H_zeeman_z + H_hyp_nv_13c #+ H_hyp_nv_13c  #+ H_NV_zeeman #H_NV_zfs 
+      #qutip.Qobj(H_NV_zfs)
+      evals, ekets = H_total_nv_13c.eigenstates() #H_total_nv_13c.eigenstates()
+      
+      evals_mat[idx,:] = np.real(evals)
+      eketsl[0].append(ekets[0])
+      eketsl[1].append(ekets[1])
+      eketsl[2].append(ekets[2])
+      eketsl[3].append(ekets[3])
+      eketsl[4].append(ekets[4])
+      eketsl[5].append(ekets[5])
+      #eketsl.append(H_total_nv_13c.eigenstates()[1]) 
+      
+      idx += 1
+  return evals_mat,eketsl
+
+
+def compute_hamiltonian_p(B_list,A_p,angle,gyrom_t):
+  B_x = 0
+  B_y = 0
+  
+  A_o_no= matrixrot(A_p,angle, 0)
+  #D_matrix_2 = matrixrot(D_matrix,9,0
+ 
+  idx = 0
+  evals_mat = np.zeros((len(B_list),3*2))
+  eketsl= [[],[],[],[],[],[]] 
+  for B_z in B_list :
+      B_x = 0
+      B_y = 0
+      B_vector = [B_x,B_y,B_z] 
+      H_zeeman_z_p1 = gyrom_t*B_z*op_s.Sz_p1
+      H_hyp_p1_n14_c =   a_o.vector_matrix_vector_product(op_s.S_p1_vector,A_o_no,op_s.I_14N_vector)
+
+      H_total = H_zeeman_z_p1  + H_hyp_p1_n14_c
+         # find the energy eigenvalues of the composite system
+      evals, ekets = H_total.eigenstates() #H_total_nv_13c.eigenstates()
+      
+      evals_mat[idx,:] = np.real(evals)
+      eketsl[0].append(ekets[0])
+      eketsl[1].append(ekets[1])
+      eketsl[2].append(ekets[2])
+      eketsl[3].append(ekets[3])
+      eketsl[4].append(ekets[4])
+      eketsl[5].append(ekets[5])
+
+      idx += 1
+  return evals_mat,eketsl
+
+
+
+B_list = np.linspace(48, 54,2000)  
+
+evals_mat_p = compute_hamiltonian(B_list,a_13c_nv_val)[0]
+evals_mat_p1 = compute_hamiltonian_p(B_list,op_s.A_p1,71,gyrom_o)[0]
+evals_mat_p2 = compute_hamiltonian_p(B_list,op_s.A_p2,0,gyrom_no)[0]
+states_f = compute_hamiltonian(B_list,a_13c_nv_val)[1]
+"""
+evals_mat_p_4 = compute_hamiltonian(B_list,4)[0]
+evals_mat_p1_4 = compute_hamiltonian_p(B_list,op_s.A_p1)[0]
+evals_mat_p2_4 = compute_hamiltonian_p(B_list,op_s.A_p2)[0]
+states_f_4 = compute_hamiltonian(B_list,4)[1]
+
+evals_mat_p_10 = compute_hamiltonian(B_list,10)[0]
+evals_mat_p1_10 = compute_hamiltonian_p(B_list,op_s.A_p1)[0]
+evals_mat_p2_10 = compute_hamiltonian_p(B_list,op_s.A_p2)[0]
+states_f_10 = compute_hamiltonian(B_list,10)[1]
+
+
+evals_mat_p_20 = compute_hamiltonian(B_list,20)[0]
+evals_mat_p1_20 = compute_hamiltonian_p(B_list,op_s.A_p1)[0]
+evals_mat_p2_20 = compute_hamiltonian_p(B_list,op_s.A_p2)[0]
+states_f_20 = compute_hamiltonian(B_list,20)[1]
+
+evals_mat_p_30 = compute_hamiltonian(B_list,30)[0]
+evals_mat_p1_30 = compute_hamiltonian_p(B_list,op_s.A_p1)[0]
+evals_mat_p2_30 = compute_hamiltonian_p(B_list,op_s.A_p2)[0]
+states_f_30 = compute_hamiltonian(B_list,30)[1]
+
+
+evals_mat_p_50 = compute_hamiltonian(B_list,50)[0]
+evals_mat_p1_50 = compute_hamiltonian_p(B_list,op_s.A_p1)[0]
+evals_mat_p2_50 = compute_hamiltonian_p(B_list,op_s.A_p2)[0]
+states_f_50 = compute_hamiltonian(B_list,50)[1]
+
+"""
+expect13c=[]
+Blistc = []
+expect13Index=[]
+expect13c_1=[]
+expect13Index_1=[]
+Blistc_1 = []
+expect13Index_3=[]
+expect13c_3=[]
+Blistc_3 = []
+expect13Index_3=[]
+
+
+Iz_13c= qutip.tensor(qeye(3),qutip.jmat(0.5,"z"))
+
+   
+
+
+P1_13c_expect=matching_pol_signal(B_list,evals_mat_p,evals_mat_p1,states_f,error,list_expect=[],list_B=[])[0]
+P1_13c_field=matching_pol_signal(B_list,evals_mat_p,evals_mat_p1,states_f,error,list_expect=[],list_B=[])[1]
+P2_13c_expect=matching_pol_signal(B_list,evals_mat_p,evals_mat_p2,states_f,error,list_expect=[],list_B=[])[0]
+P2_13c_field=matching_pol_signal(B_list,evals_mat_p,evals_mat_p2,states_f,error,list_expect=[],list_B=[])[1]       
+
+
+#P1_13c_expect_4=matching_pol_signal(B_list,evals_mat_p_4,evals_mat_p1_4,states_f_4,error,list_expect=[],list_B=[])[0]
+#P1_13c_field_4=matching_pol_signal(B_list,evals_mat_p_4,evals_mat_p1_4,states_f_4,error,list_expect=[],list_B=[])[1]
+#P2_13c_expect_4=matching_pol_signal(B_list,evals_mat_p_4,evals_mat_p2_4,states_f_4,error,list_expect=[],list_B=[])[0]
+#P2_13c_field_4=matching_pol_signal(B_list,evals_mat_p_4,evals_mat_p2_4,states_f_4,error,list_expect=[],list_B=[])[1]       
+
+#P1_13c_expect_10=matching_pol_signal(B_list,evals_mat_p_10,evals_mat_p1_10,states_f_10,error,list_expect=[],list_B=[])[0]
+#P1_13c_field_10=matching_pol_signal(B_list,evals_mat_p_10,evals_mat_p1_10,states_f_10,error,list_expect=[],list_B=[])[1]
+#P2_13c_expect_10=matching_pol_signal(B_list,evals_mat_p_10,evals_mat_p2_10,states_f_10,error,list_expect=[],list_B=[])[0]
+#P2_13c_field_10=matching_pol_signal(B_list,evals_mat_p_10,evals_mat_p2_10,states_f_10,error,list_expect=[],list_B=[])[1]       
+
+
+#P1_13c_expect_20=matching_pol_signal(B_list,evals_mat_p_20,evals_mat_p1_20,states_f_20,error,list_expect=[],list_B=[])[0]
+#P1_13c_field_20=matching_pol_signal(B_list,evals_mat_p_20,evals_mat_p1_20,states_f_20,error,list_expect=[],list_B=[])[1]
+#P2_13c_expect_20=matching_pol_signal(B_list,evals_mat_p_20,evals_mat_p2_20,states_f_20,error,list_expect=[],list_B=[])[0]
+#P2_13c_field_20=matching_pol_signal(B_list,evals_mat_p_20,evals_mat_p2_20,states_f_20,error,list_expect=[],list_B=[])[1]  
+
+#P1_13c_expect_30=matching_pol_signal(B_list,evals_mat_p_30,evals_mat_p1_30,states_f_30,error,list_expect=[],list_B=[])[0]
+#P1_13c_field_30=matching_pol_signal(B_list,evals_mat_p_30,evals_mat_p1_30,states_f_30,error,list_expect=[],list_B=[])[1]
+#P2_13c_expect_30=matching_pol_signal(B_list,evals_mat_p_30,evals_mat_p2_30,states_f_30,error,list_expect=[],list_B=[])[0]
+#P2_13c_field_30=matching_pol_signal(B_list,evals_mat_p_30,evals_mat_p2_30,states_f_30,error,list_expect=[],list_B=[])[1]       
+
+
+#P1_13c_expect_50=matching_pol_signal(B_list,evals_mat_p_50,evals_mat_p1_50,states_f_50,error,list_expect=[],list_B=[])[0]
+#P1_13c_field_50=matching_pol_signal(B_list,evals_mat_p_50,evals_mat_p1_50,states_f_50,error,list_expect=[],list_B=[])[1]
+#P2_13c_expect_50=matching_pol_signal(B_list,evals_mat_p_50,evals_mat_p2_50,states_f_50,error,list_expect=[],list_B=[])[0]
+#P2_13c_field_50=matching_pol_signal(B_list,evals_mat_p_50,evals_mat_p2_50,states_f_50,error,list_expect=[],list_B=[])[1]  
+#P_13C_M=matching_pol_signal_both(B_list,c13_nv_ev,p1_14n_ev,p2_14n_ev,states_f,error)[0]
+#P_13C_M_B=matching_pol_signal_both(B_list,c13_nv_ev,p1_14n_ev,p2_14n_ev,states_f,error)[1]
+
+
+
+
+
+List_expect13c=[]
+List_B=[0]*2000
+
+
+
+List_zeros=[]
+
+
+List_zeros2=[0]*(2000)
+
+
+field_points = 20000/(B_list[-1] - B_list[0])
+
+hp = 6.626070*10**(-28)
+gyrom=  28.03
+gNV=2
+
+
+C13_P1_PS=[]
+Delta_FWHM = 0.1
+
+Delta_sigma = Delta_FWHM/(2*np.sqrt(2*np.log(2)))
+
+t= np.arange(-0.2,0.2,1.0/field_points)
+norm_factor=1.0
+Gauss_tc =norm_factor*np.exp(-0.5*(t/Delta_sigma)**2) 
+
+
+P1_13c_g=np.multiply(3,np.convolve(Gauss_tc,P1_13c_expect,"same"))
+P2_13c_g=np.convolve(Gauss_tc,P2_13c_expect,"same")
+P1_13c_g_n=np.multiply(1,P1_13c_g/np.max(P1_13c_g))
+P2_13c_g_n=np.multiply(1/3,P2_13c_g/np.max(P2_13c_g))
+#P1_13c_g_4=np.multiply(3,np.convolve(Gauss_tc,P1_13c_expect_4,"same"))
+#P2_13c_g_4=np.convolve(Gauss_tc,P2_13c_expect_4,"same")
+
+#P1_13c_g_10=np.multiply(3,np.convolve(Gauss_tc,P1_13c_expect_10,"same"))
+#P2_13c_g_10=np.convolve(Gauss_tc,P2_13c_expect_10,"same")
+#P1_13c_g_20=np.multiply(3,np.convolve(Gauss_tc,P1_13c_expect_20,"same"))
+#P2_13c_g_20=np.convolve(Gauss_tc,P2_13c_expect_20,"same")
+
+#P1_13c_g_30=np.multiply(3,np.convolve(Gauss_tc,P1_13c_expect_30,"same"))
+#P2_13c_g_30=np.convolve(Gauss_tc,P2_13c_expect_30,"same")
+
+"""
+plt.rcParams.update({'font.size': 20})
+plt.plot(Blistc,C13_P1_PS)
+plt.plot(Blistc,C13_P2_PS)
+plt.plot(Blistc,C13_P3_PS)
+#plt.plot(Blistc,C13_P2_PS)
+plt.style.use("seaborn-white")
+xticks= np.linspace(48,54,20)
+fig4, ax4 = plt.subplots(figsize=(20,10))
+
+ax4.set_xticks(xticks)
+ax4.get_xaxis().set_major_formatter(FormatStrFormatter('%.1f'))
+ax4.plot(Blistc,C13_P1_PS,'--b',label=r'$NV-P1^{NO}$')#
+ax4.plot(Blistc,C13_P2_PS,'--c',label=r'$NV-P1^{O}$ ')
+ax4.plot(Blistc,C13_P3_PS,'--g',label=r'$P1^{NO}-NV-P1^{O}$ ') #Blistc,
+
+#ax4.plot(C13_P2_PS,'yellow',label=r'$NV-P1^{NO}$') #Blistc_1,
+ax4.legend(loc='best', prop={'size':20}, 
+           bbox_to_anchor=(1, 1), ncol=1,fancybox = True, shadow = True)
+ax4.set_xlabel('B(mT)')
+ax4.set_ylabel('Polarization')
+#ax4.set_title('13C')
+
+plt.savefig(results_dir + f"cross_pol_13c.pdf")
+plt.show()
+
+"""
+
+signal_exp=[142685389.33905712, 16952947.01775101, 407413975.2569205, 280752561.08680886, 177607392.45849973, 486497978.583179, 295436325.1221181, 1229514190.4465737, 147899442.22695643, -285683479.0260528, 397237094.0761894, 1602180845.9655106, 430112605.21735924, -1899268004.1140308, -676796088.879057, -42262717.32284461, 14763998.911833514, 289297034.5343012, 917356767.9481044, -246997298.2347725, -353436082.10528934, 183069156.0111164, 606015161.9029702, 938922122.6422904, 1685023928.206795, 1055784864.9730307, -1195876659.2060668, -1024839979.5245504, -385940983.19114023, 9164236.674793987, 206405719.71410623, 674590931.9745293, 36751764.345500655, 138629300.8846167, 450945454.28175837, 354857134.81317544, 245947529.9681711, 707379054.8391995, 640678296.4613674, 298267999.31912386, 141403733.80401778, 203362199.03420764, 426002278.7346431, 475340844.90243065]
+field_exp=[48.5, 48.6151, 48.730199999999996, 48.845299999999995, 48.96039999999999, 49.07549999999999, 49.19059999999999, 49.30569999999999, 49.420799999999986, 49.535899999999984, 49.650999999999975, 49.76609999999997, 49.88119999999997, 49.99629999999997, 50.11139999999997, 50.226499999999966, 50.34159999999996, 50.456699999999955, 50.57179999999995, 50.68689999999995, 50.80199999999995, 50.91709999999995, 51.032199999999946, 51.147299999999944, 51.26239999999994, 51.37749999999994, 51.49259999999994, 51.60769999999994, 51.722799999999935, 51.837899999999934, 51.95299999999993, 52.06809999999993, 52.18319999999992, 52.29829999999992, 52.41339999999992, 52.528499999999916, 52.643599999999914, 52.758699999999905, 52.8737999999999, 52.9888999999999, 53.1039999999999, 53.2190999999999, 53.334199999999896, 53.449299999999894]
+signal_exp_n=[i/np.max(signal_exp) for i in signal_exp]
+
+#signal_exp_norm=signal_exp/max_signal_exp
+signal_sc=[e for e in signal_exp_n]
+signal_sc2=signal_sc[::-1]
+plt.plot(field_exp,signal_sc)
+plt.show()
+
+
+fig5, ax5 = plt.subplots(figsize=(20,10))
+xticks=np.linspace(48,54,12)
+plt.rcParams.update({'font.size': 22})
+ax5.set_xticks(xticks)
+ax5.get_xaxis().set_major_formatter(FormatStrFormatter('%.1f'))
+
+ax5.plot(P1_13c_field,P1_13c_g_n,label=r'$NV-P1^{NO}$')#
+ax5.plot(P2_13c_field,P2_13c_g_n,label=r'$NV-P1^{O}$ ')
+ax5.text(48,  1 ,r'$\uparrow$', fontsize=30)
+ax5.text(48,  -1, r'$\downarrow$', fontsize=30) 
+ax5.plot(field_exp,signal_sc)
+ax5.scatter(field_exp,signal_sc)
+#ax5.plot(Blistc,P1_13c_g_4,label=r'$NV-P1^{NO}$')#
+#ax5.plot(Blistc,P2_13c_g_4,label=r'$NV-P1^{O}$ ')
+#ax5.plot(Blistc,P1_13c_g_10,label=r'$NV-P1^{NO}$')#
+#ax5.plot(Blistc,P2_13c_g_10,label=r'$NV-P1^{O}$ ')
+#ax5.plot(Blistc,P1_13c_g_20,label=r'$NV-P1^{NO}$')#
+#ax5.plot(Blistc,P2_13c_g_20,label=r'$NV-P1^{O}$ ')
+#ax5.plot(Blistc,P1_13c_g_30,label=r'$NV-P1^{NO}$')#
+#ax5.plot(Blistc,P2_13c_g_30,label=r'$NV-P1^{O}$ ')
+#ax5.plot(Blistc,P1_13c_g_50,label=r'$NV-P1^{NO}$')#
+#ax5.plot(Blistc,P2_13c_g_50,label=r'$NV-P1^{O}$ ')
+
+#ax5.plot(Blistc,C13_P3_PS,'--g',label=r'$P1^{NO}-NV-P1^{O}$ ') #Blistc,
+
+#ax4.plot(C13_P2_PS,'yellow',label=r'$NV-P1^{NO}$') #Blistc_1,
+ax5.legend(loc='best', prop={'size':20}, 
+           bbox_to_anchor=(1, 1), ncol=1,fancybox = True, shadow = True)
+ax5.set_xlabel('B(mT)')
+ax5.set_ylabel('Polarization')
+#ax4.set_title('13C')
+
+plt.savefig(results_dir + f"cross_pol_13c222angle"+str(theta)+".pdf")
+plt.show()
+
+peaks_exp,_=find_peaks(np.abs(signal_exp))
+print("peaks_exp")
+print(peaks_exp)
+list_exp_peaks_B=[field_exp[i] for i in peaks_exp]
+list_exp_peaks_PoS=[signal_exp[i] for i in peaks_exp]
+
+peaks1,_=find_peaks(np.abs(P1_13c_g))
+print(peaks1)
+list_p1=[P1_13c_field[i] for i in peaks1]
+
+
+list_p1_1=set(list_p1)
+peaks2,_=find_peaks(np.abs(P2_13c_g))
+print(peaks2)
+list_p2=[P2_13c_field[i] for i in peaks2]
+list_p2_2=set(list_p2)
+#ax4.plot(B_list,C13_P2_PS)
+print("list_p1")
+print(list_p1)
+print("list_p2")
+print(list_p2)
